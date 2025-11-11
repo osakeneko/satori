@@ -6,6 +6,9 @@ const axios = require('axios')
 const express = require('express')
 const fs = require('fs')
 const path = require('path')
+const qrcode = require("qrcode-terminal"); // added for QR display
+let latestQR = null; // stores latest QR for web viewing
+
 
 // Configuration
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 'http://localhost:5678/webhook/whatsapp-webhook'
@@ -23,7 +26,10 @@ async function connectToWhatsApp() {
 
     sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true, // Scan QR code with your phone
+        browser: ['Satori Bot', 'Chrome', '1.0.0'],
+syncFullHistory: false,
+markOnlineOnConnect: true
+
         browser: ['Satori Bot', 'Chrome', '1.0.0'],
         syncFullHistory: false,
         markOnlineOnConnect: true
@@ -31,6 +37,17 @@ async function connectToWhatsApp() {
 
     // Save credentials
     sock.ev.on('creds.update', saveCreds)
+
+    // Handle QR updates
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        if (qr) {
+            latestQR = qr;
+            console.log("📱 New QR Code generated! Visit /qr to scan.");
+            qrcode.generate(qr, { small: true });
+        }
+    });
+
 
     // Connection updates
     sock.ev.on('connection.update', (update) => {
@@ -169,7 +186,13 @@ app.get('/health', (req, res) => {
     })
 })
 
+app.get('/qr', (req, res) => {
+    if (!latestQR) return res.send('No QR available yet. Wait for generation.');
+    res.send(`<img src="https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(latestQR)}&size=300x300">`);
+});
+
 // Start server
+
 app.listen(PORT, () => {
     console.log(`🚀 Satori Bot API running on port ${PORT}`)
 })
