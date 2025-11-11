@@ -24,12 +24,11 @@ let sock // WhatsApp socket
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys')
 
+    const qrcode = require("qrcode-terminal");
+    let latestQR = null;
+
     sock = makeWASocket({
         auth: state,
-        browser: ['Satori Bot', 'Chrome', '1.0.0'],
-syncFullHistory: false,
-markOnlineOnConnect: true
-
         browser: ['Satori Bot', 'Chrome', '1.0.0'],
         syncFullHistory: false,
         markOnlineOnConnect: true
@@ -38,16 +37,38 @@ markOnlineOnConnect: true
     // Save credentials
     sock.ev.on('creds.update', saveCreds)
 
-    // Handle QR updates
+    // Handle connection + QR updates
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
+
         if (qr) {
             latestQR = qr;
             console.log("📱 New QR Code generated! Visit /qr to scan.");
             qrcode.generate(qr, { small: true });
         }
+
+        if (connection === 'close') {
+            const shouldReconnect =
+                lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Connection closed. Reconnecting:', shouldReconnect);
+            if (shouldReconnect) connectToWhatsApp();
+        } else if (connection === 'open') {
+            console.log('✅ Satori Bot connected to WhatsApp!');
+        }
     });
 
+    // Handle incoming messages
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+        if (type !== 'notify') return;
+        for (const msg of messages) await handleMessage(msg);
+    });
+
+    // Add /qr route (serves latest QR as image)
+    app.get('/qr', (req, res) => {
+        if (!latestQR) return res.send('No QR available yet. Please wait...');
+        res.send(`<img src="https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(latestQR)}&size=300x300">`);
+    });
+}
 
     // Connection updates
     sock.ev.on('connection.update', (update) => {
